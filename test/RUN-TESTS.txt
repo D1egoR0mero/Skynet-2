@@ -1,0 +1,6 @@
+PM2.1 tests only. Extract into the root of your Skynet-2 project, so test/ sits next to server.js and package.json.
+
+Run without changing package.json:
+  node --test test/pm21-*.test.js
+
+Requires Node.js 20+ and the updated Skynet-2 application files.
