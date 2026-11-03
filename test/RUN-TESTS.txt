@@ -1,6 +1,15 @@
-PM2.1 tests only. Extract into the root of your Skynet-2 project, so test/ sits next to server.js and package.json.
+Requires Node.js 20+.
 
-Run without changing package.json:
+All PM2.1 regression and PM2.2 keyword tests:
+  npm test
+
+PM2.1 only:
   node --test test/pm21-*.test.js
 
-Requires Node.js 20+ and the updated Skynet-2 application files.
+PM2.2 only:
+  node --test test/pm22-*.test.js
+
+Provider requests use fixtures. Server integration tests need permission to
+listen on localhost; they use temporary project copies and do not change your
+listings cache. UI interaction tests use a small DOM harness, not a real browser.
+AI prompts/scope: docs/ai/PM2.2-ai-usage.md
