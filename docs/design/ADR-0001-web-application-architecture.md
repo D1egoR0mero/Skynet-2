@@ -1,91 +1,93 @@
-# ADR-0001: Serve the internship finder as a server-rendered Node/Express web application
+# ADR-0001: Serve the internship finder as a static browser client over a small Node JSON API
 
-- **Status:** Proposed
-- **Date:** 2026-10-22
+- **Status:** Accepted
+- **Date:** 2026-11-04
 - **Deciders:** Team lead, Backend/API owner, Frontend/UX owner, QA/test owner
 
 ## Context
 
-**Current state.** The repository holds a terminal-only prototype of the internship finder. Its strengths are structural, not cosmetic:
+The repository began as a terminal-only prototype. Its filter core is pure (`src/filters.js`), its source adapter documents the listing shape (`src/sources/simplify.js`), and its CLI applies one filter step at a time with undo and a zero-result guard (`src/index.js`, `src/display.js`). The product intent in `README.md` is a browser experience: students must be able to use it on phones and locked-down machines, and a filtered view must be linkable rather than trapped in a terminal.
 
-- **A pure filter core.** `src/filters.js` exposes predicate functions that take a pool array plus user input and return a new array. There is no I/O, no rendering, and no terminal dependency in that module, so each filter step is unit-testable in isolation.
-- **A documented source adapter contract.** `src/sources/simplify.js` states the listing shape that the rest of the system depends on — title, company, location, URL, posting date, terms, and a lowercased free-text tag field — and notes that additional sources are expected to conform to the same shape.
-- **A funnel interaction with real semantics.** `src/index.js` applies exactly one filter step at a time to the current pool, records a human-readable label per applied step, keeps a stack of prior pools so "undo last filter" restores the previous pool exactly, refuses a step that would leave zero results (the pool is unchanged and the user is told to try something else), and requires at least one applied filter before results are shown.
-- **Pagination with a stable page indicator.** `src/display.js` slices the pool at 20 listings per page and shows "Page X of Y", with navigation that clears and redraws the terminal.
+The first draft of this record, dated 2026-10-22, proposed a server-rendered Node/Express application that replayed filter steps on the server, required at least one filter before showing results, and paginated 20 listings per page. That design was not built, and the PM2.1 implementation does not follow it. This revision records the architecture that actually shipped (commit `ed9bca4`, merged in pull request #1) and preserves the original proposal in the alternatives below.
 
-What the prototype cannot do is reach the audience it was built for. It requires a Node 24 installation and an interactive terminal; it cannot be linked, bookmarked, or shared with a classmate, an advisor, or a recruiter; it is unusable on phones and tablets and on locked-down machines where students cannot install a runtime. The product intent in `README.md` — survey-driven internship search that improves on the existing campus tooling — is a browser experience, so the terminal was always a stand-in for a web interface.
+Forces and constraints that shaped what shipped:
 
-**Constraints.**
+- **Team and schedule:** three students working part-time, one semester milestone at a time. A second toolchain or deployment target competes for the same hours.
+- **Runtime:** Node.js 24 with ES modules (`"type": "module"`). The declared dependencies (`chalk`, `cli-table3`, `inquirer`) are terminal presentation libraries and contribute nothing to the browser UI.
+- **Data:** public listings from two families of sources — the SimplifyJobs GitHub JSON document and company career boards (Greenhouse and Lever, configured in `job-boards.json`). No database, no accounts, no authentication.
+- **Budget:** no paid hosting; the deployment target must fit a no-cost tier.
+- **Interaction:** students expect filtering to update as they type, and the result pool is small enough (roughly 4,800 listings) to hold in the browser.
 
-- **Team and schedule:** three students working part-time, delivering one semester milestone at a time. Any option that adds a second toolchain or a new deployment target competes for the same limited hours.
-- **Runtime:** Node.js 24 with ES modules; the project is `"type": "module"`. The current dependencies (`chalk`, `cli-table3`, `inquirer`) are terminal presentation libraries and have no role in a browser UI.
-- **Data:** a single external public listing source, fetched over HTTPS as a static JSON document that is already intended to be consumed programmatically. There is no backend, no database, and no authentication in the system today.
-- **Behavior that must be preserved:** include keywords combine with AND, exclude keywords combine with OR, each step narrows the current pool (never widens it), a step that would empty the pool is rejected rather than accepted, undo restores the exact previous pool, and at least one filter step is required before results.
-- **Budget:** no paid hosting services. The deployment target must fit a no-cost tier.
-
-**Quality attributes driving the decision.**
+Quality attributes driving the decision:
 
 | Attribute | Why it matters here |
 |---|---|
-| Usability and accessibility for a browser-only audience | The interface exists to be used by students on whatever device they have, including assistive technology. |
-| Maintainability for a three-person team | Two interfaces (CLI and web) and a small number of shared modules must stay understandable by whoever picks up the milestone next. |
-| Testability of filter logic | The funnel semantics are the product's actual value; they must be verifiable without driving a UI. |
-| Graceful behavior when the upstream source is down | The listing source is outside our control and can fail or change shape at any time. |
+| Usability for a browser-only audience | The change exists so students can use the product on any device, including phones. |
+| Availability when upstream sources fail | Listing providers are outside the team's control and can fail or change shape at any time. |
+| Maintainability for a three-person team | One deployable artifact and one client codebase are cheaper to understand than a rendering tier plus a separate API tier. |
+| Testability | Source normalization, caching, and UI behaviour must be verifiable with fixtures, without calling live providers. |
 
-**Facts, assumptions, and unknowns.**
+Facts and assumptions:
 
-- *Fact:* `src/filters.js` and `src/sources/simplify.js` contain no terminal-specific code; only `src/index.js` and `src/display.js` are tied to the terminal.
-- *Fact:* the filter core operates on an in-memory array of the whole pool, so any server-side design must hold the pool somewhere for the duration of a request.
-- *Fact:* the existing dependencies are presentation-only for the terminal and provide nothing reusable in a browser.
-- *Assumption:* expected traffic is small — a course demonstration plus classmates — but this is unmeasured, so no capacity or cost claim in this record rests on it.
-- *Unknown, must be measured:* upstream fetch latency and freshness, upstream failure rate, server render time per page, and the actual limits of whichever no-cost hosting tier is selected. Nothing in this decision depends on a specific value for these; they are required inputs to the eventual deployment and caching decisions.
+- *Fact:* `server.js` uses Node's built-in `http` module; Express is not a dependency.
+- *Fact:* the server exposes exactly three static assets (`index.html`, `app.js`, `style.css`) plus `GET /api/listings` and `POST /api/refresh`.
+- *Fact:* the listing cache is persisted to `data/listings-cache.json`, considered fresh for 24 hours, and refreshed on demand and on a daily timer while the process runs. Cached entries carry `id`, `firstSeen`, and a `newCount` computed against the previous cache.
+- *Fact:* all filtering, sorting, pagination, saved roles, and theme handling happen in `public/app.js`, which is loaded as a module script with no bundler.
+- *Fact:* `public/app.js` filters 12 listings per page (the CLI uses 20; the web page does not).
+- *Assumption:* traffic is a course demonstration plus classmates, so no capacity or cost claim rests on measured load.
+- *Known defect:* `server.js` imports `src/sources/boards.js`, which is absent from `main`; the server cannot start and `test/pm21-sources.test.js` cannot pass until it is restored. The `pm2.2-include-exclude-keywords` branch restores that adapter.
 
 ## Decision
 
-We will serve the internship finder as a Node/Express web application that renders the search page on the server and uses small amounts of vanilla JavaScript plus JSON endpoints for filter application; filtering runs server-side by reusing `src/filters.js` and `src/sources/simplify.js` unchanged.
+We will ship the finder as a single Node.js process that serves a static browser client and two JSON endpoints: the server owns fetching, normalizing, de-duplicating, and caching the listing pool, while the browser owns all filtering, sorting, pagination, saved state, and presentation.
 
-At the design level the application has one rendering surface and two JSON interactions:
+Concretely:
 
-- **Initial page request.** The server obtains the current listing pool, applies no filter, and renders the page: the total listing count and the four filter options the prototype already offers (major/field of study, include/exclude keywords, company type/industry, location). The filter summary area and the results area are rendered as server-produced HTML, so the page is meaningful and navigable before any script runs.
-- **Filter-step endpoint.** A request carries one filter step — the filter kind plus the user's values — together with the ordered list of steps already applied. The server replays that list from the full pool through the existing predicates, applies the new step, and returns JSON containing the resulting applied-filter list, the remaining count, an acceptance flag, and the first page of results. A step that would leave zero results is refused: the returned state is the state before the step, and the response carries the same "that filter would leave 0 results" guidance the CLI prints. Undo is expressed as the same endpoint with the last step removed from the list, so the server re-derives the earlier pool by replay rather than by trusting client-held data. Because the applied list travels with each request, no per-user session state is required.
-- **Results-page endpoint.** A request carries the applied-filter list and a page number; the server slices the current pool at 20 listings per page and returns that slice with the page indicator "Page X of Y" and the total count.
-- **Browser behavior.** Vanilla JavaScript collects the filter form, calls the two endpoints, and replaces the filter summary and results regions by hand. No framework, no bundler, no client build step. Browsers call only the application's own origin, so no cross-origin configuration is introduced.
-- **CLI retained as reference.** `src/index.js` and `src/display.js` stay in the repository as the executable specification of funnel, undo, and zero-result behavior, and as the parity target for tests. They are not the deployment artifact.
+- **Static client.** `server.js` serves `index.html`, `app.js`, and `style.css` from `public/` with an explicit file map. There is no framework, bundler, or client build step.
+- **Listing endpoints.** `GET /api/listings` returns the cached payload (`listings`, `updatedAt`, `newCount`, `errors`), refreshing first when the cache is older than 24 hours. `POST /api/refresh` forces a refresh; other methods receive `405`, and unknown paths receive `404`. Failures return a JSON error with `502`.
+- **Source assembly and cache.** The server fetches the SimplifyJobs document and the configured career boards in parallel, normalizes both to one listing shape, de-duplicates by URL (query string and trailing slash ignored, lowercased) or by company/title/location when no URL exists, preserves `firstSeen` across refreshes, and writes the merged cache to `data/listings-cache.json`. When one source fails, entries from the failed source are retained from the previous cache and the failure is reported in `errors`.
+- **Browser-side filtering.** `public/app.js` filters the full in-memory array in `render()` — saved view, free-text search, location, opportunity type, and posted-since — sorts newest-first, clamps the page, updates counters and pagination, and renders cards or the empty state. Saved roles and theme live in local storage.
+- **CLI retained as reference.** `src/index.js` and `src/display.js` remain as the executable specification of the funnel, undo, and zero-result behaviour, and as a parity target for tests. They are not the deployment artifact, and the web client does not import `src/filters.js`.
 
 ## Consequences
 
 - **Positive:**
-  - No client build toolchain: nothing to install, version, or debug beyond Node and the server dependencies, which matches the team's available hours.
-  - No cross-origin problem: the browser talks only to the same origin that served the page, so no CORS policy, token scheme, or proxy layer is needed.
-  - `src/filters.js` and the listing contract in `src/sources/simplify.js` are reused unchanged, so the funnel semantics stay in one place and remain unit-testable without HTTP or DOM.
-  - One deployable artifact: a single Node process serving HTML and JSON.
-  - Server-side ownership of the listing pool makes a shared fetch cache or scheduled refresh possible, which is what allows the upstream source to fail without taking the page down.
-  - Pages are linkable and usable on mobile browsers, which is the primary reason for the change.
+  - One deployable artifact and no client build toolchain: nothing to install, version, or debug beyond Node and the server's dependencies.
+  - Same-origin requests only, so no CORS configuration, tokens, or proxy layer are needed.
+  - Per-keystroke filtering happens locally against an in-memory pool, so search and filter feedback needs no network round trip.
+  - Server-side ownership of the pool makes a shared cache and scheduled refresh possible, which is what keeps the page usable when one upstream source fails.
+  - The page is linkable and usable on mobile browsers, which is the reason for the change.
 - **Negative:**
-  - Dynamic interaction is hand-written DOM and JavaScript rather than a component framework; state updates, focus handling, and error display are our responsibility on every screen.
-  - The server now owns request handling and any listing cache state, so concurrency and cache invalidation become real concerns that the CLI never had.
-  - UI work becomes manual and therefore slower per screen than a component library would make it.
-  - The CLI and web paths can drift unless they continue to share `src/filters.js` and the listing contract; duplication of filter logic would silently break parity.
+  - Filter state is not encoded in the URL, so a filtered view cannot be bookmarked or shared and is lost on reload.
+  - Filter semantics are implemented twice — in the browser and, for the CLI, in `src/filters.js` — so the two can drift; `ADR-0002` records the same tension for keywords.
+  - The committed cache file is large (tens of thousands of lines) and can go stale by up to 24 hours; freshness depends on the process staying up or a refresh request arriving.
+  - There is no authentication, rate limiting, or abuse protection, which is acceptable only because the data is public and read-only.
+  - Browser interaction is hand-written DOM: focus handling, error display, and accessibility are manual work.
+  - `main` is currently not runnable end to end because `src/sources/boards.js` is missing, and `test/pm21-sources.test.js` fails for the same reason.
 - **Follow-ups:**
-  - Define the HTTP contract for a filter step and for a results page: request fields, response fields, and the representation of an accepted versus refused step.
-  - Decide the caching and refresh policy for the upstream listings, including what the page shows when the source is unreachable.
-  - Run an accessibility and usability-heuristic review of the generated page before the milestone demo.
-  - Keep `src/filters.js` and the listing contract as the single shared source of truth, and treat any change to them as a change to both interfaces.
-  - Add tests for the server routes covering accepted steps, refused zero-result steps, undo, and page boundaries.
+  - Merge the `pm2.2-include-exclude-keywords` branch to restore `src/sources/boards.js`, add `npm test` and `npm run web` scripts, and bring the PM2.2 tests with it.
+  - Decide whether the listing cache belongs in version control or is generated at runtime, and document the freshness expectations for demos.
+  - Consider URL-encoded filter state so filtered views are shareable.
+  - Run an accessibility and usability-heuristic review of the page before the milestone demo.
+  - Revisit client-side filtering if the pool grows far beyond its current size.
 
 ## Alternatives Considered
 
 | Alternative | Why rejected |
 |-------------|--------------|
-| React + Vite SPA with the existing filter core moved behind a new JSON API | Introduces a second toolchain (bundler, client dependency tree, separate build output) and two deployable artifacts for a three-person team on a one-semester cadence, while the required interaction — pick a filter, see a smaller pool, undo — needs no component model. It also makes the initial page dependent on client script execution, which works against the accessibility goal. |
-| Next.js full-stack | Its value is server rendering, routing, and build conventions we would use a small fraction of; the framework's routing and rendering model would have to be learned and maintained by the whole team, and it adds framework-specific conventions around the very endpoints we want to keep thin. The cost is disproportionate to a single search page. |
-| Client-only SPA fetching the SimplifyJobs JSON directly from the browser | Puts the upstream document in the browser's origin and dependency path: the source is a third-party host we do not control, so availability, response shape, and any access policy become a runtime failure mode on every page load, and the user-visible failure would be an empty page. It also forces the filter logic to be duplicated into the browser or newly bundled for it, breaking the "reuse `src/filters.js` unchanged" requirement, and it gives up any server-side cache. |
-| Keeping the CLI and wrapping it / shipping a terminal-only tool | Does not address the reason for the change: no linkable URL, no use on a phone or a machine without Node, and no way to share a filtered view. A wrapper around terminal output would also inherit its raw-mode keyboard handling and terminal-specific rendering, none of which survives in a browser. |
+| Server-rendered Node/Express application with server-side filter replay and 20 listings per page (the 2026-10-22 draft of this record) | Not built. The shipped interaction filters on every keystroke, so replaying a filter list per request would add a network round trip per character, and the team would have had to maintain a server rendering path alongside the client. The static client plus JSON API delivers the same user outcome with one codebase and one deployable. |
+| React + Vite SPA with a JSON API | Introduces a second toolchain (bundler, client dependency tree, separate build output) and two deployable artifacts for a three-person team on a one-semester cadence, while the required interaction needs no component model. |
+| Client-only SPA fetching the SimplifyJobs document directly from the browser | Makes a third-party host part of every page load: availability, response shape, and access policy become runtime failure modes, and the browser would have to fetch from another origin. It also gives up the server-side cache that lets the page survive one failed source. |
+| Keeping the CLI and wrapping it, or shipping a terminal-only tool | Does not address the reason for the change: no linkable URL, no use on a phone or on a machine without Node, and no way to share a filtered view. |
 
 ## Links
 
-- US-001 — web funnel search requirement: `docs/requirements/US-001-web-funnel-search.md`
-- `README.md` — product intent, include-AND/exclude-OR semantics, pagination and example output
-- `src/filters.js` — pure filter predicates reused unchanged by the server
-- `src/sources/simplify.js` — listing contract and the single upstream source
-- `src/display.js` — terminal pagination behavior that the web page indicator and 20-per-page slicing must match
+- `US-001` — web search and filtering requirement: `docs/requirements/US-001-web-funnel-search.md`
+- `US-002` — include/exclude keyword requirement: `docs/requirements/US-002-keyword-filtering.md`
+- `ADR-0002` — keyword filter placement within this architecture: `docs/design/ADR-0002-keyword-filter-placement.md`
+- `README.md` — product intent, feature list, and include/exclude semantics
+- `server.js` — static file map, `GET /api/listings`, `POST /api/refresh`, cache and refresh policy
+- `public/app.js` — client-side filtering, sorting, pagination, saved roles, and theme
+- `src/sources/simplify.js` — GitHub source adapter and listing contract
+- `src/sources/boards.js` — Greenhouse/Lever adapter; absent on `main`, restored on `pm2.2-include-exclude-keywords`
+- `test/pm21-server.test.js`, `test/pm21-ui.test.js`, `test/pm21-sources.test.js` — PM2.1 regression tests
