@@ -8,9 +8,20 @@ let saved=new Set(read('skynet-saved',[]));
 if(read('skynet-dark',false))document.body.classList.add('dark');
 function idFor(x){return `${x.company}|${x.title}|${x.url}`}
 function el(tag,cls,text){const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n}
+// Comma-separated phrases match literal substrings in title/company only.
+function splitKeywords(input) {
+ return input.split(',').map(keyword => keyword.trim().toLowerCase()).filter(Boolean);
+}
+function matchesKeywords(listing, include, exclude) {
+ const text = `${listing.title || ''} ${listing.company || ''}`.toLowerCase();
+ return include.every(keyword => text.includes(keyword)) &&
+   !exclude.some(keyword => text.includes(keyword));
+}
 function render(){
  const q=$('search').value.trim().toLowerCase(),loc=$('location').value.trim().toLowerCase(),type=$('type').value,days=Number($('date').value);
+ const include=splitKeywords($('include').value),exclude=splitKeywords($('exclude').value);
  visible=listings.filter(x=>{
+  if(!matchesKeywords(x,include,exclude))return false;
   const searchable=`${x.title} ${x.company} ${x.tags||''} ${x.terms||''}`.toLowerCase();
   if(mode==='saved'&&!saved.has(idFor(x)))return false;
   if(q&&!searchable.includes(q))return false;
@@ -34,8 +45,8 @@ function render(){
   if(x.url&&/^https?:\/\//i.test(x.url)){const a=el('a','apply','View opportunity ↗');a.href=x.url;a.target='_blank';a.rel='noopener noreferrer';bottom.append(a)}card.append(bottom);container.append(card)
  }
 }
-for(const id of ['search','location','type','date'])$(id).addEventListener('input',()=>{page=0;render()});
-$('reset').onclick=()=>{for(const id of ['search','location','type','date'])$(id).value='';page=0;render()};
+for(const id of ['search','include','exclude','location','type','date'])$(id).addEventListener('input',()=>{page=0;render()});
+$('reset').onclick=()=>{for(const id of ['search','include','exclude','location','type','date'])$(id).value='';page=0;render()};
 $('prev').onclick=()=>{if(page>0){page--;render()}};$('next').onclick=()=>{if((page+1)*size<visible.length){page++;render()}};
 $('nav-all').onclick=()=>switchMode('all');$('nav-saved').onclick=()=>switchMode('saved');
 function switchMode(m){mode=m;page=0;$('nav-all').classList.toggle('active',m==='all');$('nav-saved').classList.toggle('active',m==='saved');render()}

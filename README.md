@@ -194,3 +194,22 @@ npm install cli-table3 chalk
 ```
 
 `readline` is included with Node.js and does not need to be installed separately.
+
+## Web application and tests
+
+Requires Node.js 20 or newer. Run `npm run web`, then open
+`http://localhost:3000`. `npm start` continues to launch the CLI.
+
+The web page supports separate **Include keywords** and **Exclude keywords**
+fields. Separate keywords or phrases with commas. Every included keyword must
+appear in the title/company text; any excluded keyword removes the listing.
+Matching ignores capitalization and surrounding spaces and uses literal substring
+matching. These fields work together with general search, location, opportunity
+type, posting date, and saved roles. **Clear filters** clears both keyword fields
+and the other search filters, while keeping the selected Explore/Saved view.
+
+Run all automated tests with `npm test`. Tests use fixture data and do not call
+live listing providers. Server integration tests start a temporary local HTTP
+server, so the execution environment must allow local listening sockets.
+See [PM2.1 coverage](docs/testing/PM2.1-test-coverage.md) and
+[AI assistance disclosure](docs/ai/PM2.2-ai-usage.md).
