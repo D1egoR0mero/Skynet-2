@@ -3,6 +3,9 @@
 cs3704-submission-*.zip
 cs3704-submission-*/
 
+# Node dependencies (installed with npm ci)
+node_modules/
+
 # Session transcripts and summaries (auto-exported on submit)
 session-*.json
 session-*.md

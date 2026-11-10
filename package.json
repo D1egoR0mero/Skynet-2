@@ -10,11 +10,17 @@
   "scripts": {
     "start": "node src/index.js",
     "test": "node --test test/*.test.js",
+    "lint": "eslint . --max-warnings=0",
     "web": "node server.js"
   },
   "dependencies": {
     "chalk": "^5.3.0",
     "cli-table3": "^0.6.5",
     "inquirer": "^9.3.6"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "globals": "^17.14.0"
   }
 }
