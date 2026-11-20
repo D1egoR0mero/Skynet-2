@@ -24,6 +24,18 @@ PM2.2 tests in `pm22-keywords.test.js` additionally exercise `splitKeywords` and
 OR, normalization, blank fields, literal phrases, conflicting rules, title/company
 scope, combined search/location, pagination reset and preserving saved-only mode.
 
+PM2.3 unit additions close the remaining PM2.1 gaps. `pm21-sources.test.js` now
+covers normalization defaults, `is_visible` vs `active`, empty datasets and
+malformed payloads. `pm21-boards.test.js` covers an unsupported provider through
+a temporary configured copy, without changing `job-boards.json`.
+`pm21-ui.test.js` covers co-op and full-time spellings, the posted-since cutoff,
+both empty states, the unknown-date label, page clamping, card structure and
+direct `$`/`el`/`read`/`newestFirst` assertions. `pm21-server-branches.test.js`
+covers the URL-less `key()` fallback, malformed startup cache, partial board
+failure merge, mid-run refresh rejection, static/JSON headers and concurrent
+refresh coalescing. AI prompts and verification are recorded in
+[PM2.3-ai-usage](../ai/PM2.3-ai-usage.md).
+
 The DOM harness reads actual HTML IDs and runs the application script, but does
 not emulate browser layout, accessibility APIs or real browser storage behavior.
 Manual browser checks remain useful. The daily timer is not waited out; its

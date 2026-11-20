@@ -1,8 +1,13 @@
-// AI-generated with Codex. Prompt: test the missing PM2.1 Greenhouse/Lever adapter,
-// including normalization, role selection, missing dates, and isolated failures.
-// See docs/ai/PM2.2-ai-usage.md for the interaction and verification record.
+// AI-generated with Codex and expanded with Opencode. Prompt: test the missing
+// PM2.1 Greenhouse/Lever adapter, including normalization, role selection,
+// missing dates, isolated failures, and unsupported providers.
+// See docs/ai/PM2.2-ai-usage.md and docs/ai/PM2.3-ai-usage.md.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {mkdtemp,mkdir,cp,writeFile,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import path from 'node:path';
+import {fileURLToPath,pathToFileURL} from 'node:url';
 import {fetchBoards} from '../src/sources/boards.js';
 
 test('career boards normalize dates, defaults, and co-ops without accepting nontechnical internships', async t => {
@@ -48,4 +53,38 @@ test('career boards report HTTP and malformed payload errors per company while r
   assert.deepEqual(errors, ['Cloudflare: HTTP 503', 'Datadog: Invalid job list', 'Figma: Invalid JSON']);
   assert.deepEqual(jobs.map(job => job.company), ['Ramp', 'Palantir']);
   assert.equal(jobs[1].location, 'Remote');
+});
+
+// Purpose: the unsupported-provider guard is unreachable with the real
+// job-boards.json, so load a temporary copy of the adapter with an invalid
+// configuration and assert that it fails before making any network request.
+test('career boards reject an unsupported provider without making a request', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'skynet-board-config-'));
+  const originalFetch = globalThis.fetch;
+  try {
+    await mkdir(path.join(dir, 'src', 'sources'), {recursive: true});
+    await cp(
+      fileURLToPath(new URL('../src/sources/boards.js', import.meta.url)),
+      path.join(dir, 'src', 'sources', 'boards.js'),
+    );
+    await writeFile(
+      path.join(dir, 'job-boards.json'),
+      JSON.stringify([{provider: 'workday', slug: 'acme', company: 'Acme'}]),
+    );
+    const {fetchBoards: fetchTemporaryBoards} = await import(
+      pathToFileURL(path.join(dir, 'src', 'sources', 'boards.js')).href
+    );
+    let calls = 0;
+    globalThis.fetch = async () => {
+      calls++;
+      return {ok: true, json: async () => []};
+    };
+    const {jobs, errors} = await fetchTemporaryBoards();
+    assert.deepEqual(jobs, []);
+    assert.deepEqual(errors, ['Acme: Unsupported provider']);
+    assert.equal(calls, 0, 'the provider must be validated before fetch');
+  } finally {
+    globalThis.fetch = originalFetch;
+    await rm(dir, {recursive: true, force: true, maxRetries: 5, retryDelay: 100});
+  }
 });

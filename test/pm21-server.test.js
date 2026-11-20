@@ -1,4 +1,5 @@
-// Expanded with AI assistance; new outage test prompt/scope: docs/ai/PM2.2-ai-usage.md.
+// Expanded with AI assistance; new outage test prompt/scope:
+// docs/ai/PM2.2-ai-usage.md and docs/ai/PM2.3-ai-usage.md.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,cp,writeFile,rm,mkdir} from 'node:fs/promises';
@@ -7,6 +8,10 @@ import path from 'node:path';
 import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 const project=fileURLToPath(new URL('../',import.meta.url));
+// Wait for the spawned server to exit before deleting its working directory;
+// Windows locks files that a still-running process holds open.
+const stop=async child=>{if(!child||child.exitCode!==null)return;await new Promise(resolve=>{const timer=setTimeout(resolve,2000);timer.unref?.();child.once('exit',()=>{clearTimeout(timer);resolve()});child.kill()})};
+const cleanup=async(child,dir)=>{await stop(child);await rm(dir,{recursive:true,force:true,maxRetries:5,retryDelay:100})};
 const fixture=`globalThis.fetch=async(url)=>{if(String(url).includes('raw.githubusercontent.com'))return {ok:true,json:async()=>[{title:'Software Intern',company_name:'Acme',locations:['Remote'],url:'https://jobs.test/swe?ref=github',date_posted:1790000000,terms:['Summer 2027']}]};if(String(url).includes('greenhouse'))return {ok:true,json:async()=>({jobs:[{title:'Software Intern',absolute_url:'https://jobs.test/swe?ref=board',location:{name:'Remote'}}]})};return {ok:true,json:async()=>([])};};`;
 test('PM2.1 integration: server, GitHub, boards, dedup, cache, refresh, static UI and method checks', {timeout:20000},async()=>{
  const dir=await mkdtemp(path.join(tmpdir(),'skynet-pm21-'));let child;
@@ -25,7 +30,7 @@ test('PM2.1 integration: server, GitHub, boards, dedup, cache, refresh, static U
   assert.equal((await fetch(base+'/api/refresh')).status,405);
   assert.equal((await fetch(base+'/missing')).status,404);
   assert.equal((await fetch(base+'/app.js')).status,200);
- }finally{if(child)child.kill();await rm(dir,{recursive:true,force:true})}
+ }finally{await cleanup(child,dir)}
 });
 
 // Exercise startup cache loading and the refresh fallback through real HTTP.
@@ -61,8 +66,7 @@ test('PM2.1 integration: upstream outage returns 502 without cache and preserves
     assert.match(data.errors.join('; '), /Refresh failed.*Fixture outage/);
    } else assert.match(data.error, /Could not load listings.*Fixture outage/);
   } finally {
-   if (child) child.kill();
-   await rm(dir, {recursive: true, force: true});
+   await cleanup(child, dir);
   }
  }
 });
